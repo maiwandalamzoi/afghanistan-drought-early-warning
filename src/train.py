@@ -35,6 +35,18 @@ FEATURES = [
     "ndvi_lag1", "evi_lag1", "vv_db_lag1", "vh_db_lag1", "lst_day_c_lag1",
     "precip_total_mm_lag1", "spi3_lag1",
 ]
+# Tested and deliberately NOT included: vci/tci/vhi (Kogan 1995 vegetation
+# health index components, computed in compute_vhi.py). Adding them as
+# model features was tried honestly, not assumed to help -- LightGBM's F1
+# dropped from 0.598 to 0.482 and Random Forest's from 0.489 to 0.419 with
+# them included, most likely overfitting: they're deterministic functions
+# of ndvi/lst already in this feature set, so adding them as separate
+# columns mostly adds redundant dimensionality against only ~2,065 training
+# rows, not new information. VHI/CDI are still computed and used --
+# as the dashboard's human-readable display index (see
+# compute_composite_index.py), a different job than a model feature, with a
+# different bar to clear. Keeping the model on its better-performing,
+# leaner feature set here rather than the more sophisticated-sounding one.
 TARGET = "target_drought_next"
 
 

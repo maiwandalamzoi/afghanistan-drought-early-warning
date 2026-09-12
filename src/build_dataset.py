@@ -18,19 +18,26 @@ def main():
     sat = pd.read_csv("data/raw/satellite_modis.csv")
     lst = pd.read_csv("data/raw/lst_modis.csv")
     spi = pd.read_csv("data/processed/spi3.csv")
+    cdi = pd.read_csv("data/processed/composite_index.csv")
 
     df = (spi[["province", "year", "month", "precip_total_mm", "precip_3mo_mm", "spi3", "spi3_category", "is_drought"]]
           .merge(sar, on=["province", "year", "month"], how="inner")
           .merge(sat, on=["province", "year", "month"], how="inner")
-          .merge(lst, on=["province", "year", "month"], how="inner"))
+          .merge(lst, on=["province", "year", "month"], how="inner")
+          .merge(cdi[["province", "year", "month", "vci", "tci", "vhi", "cdi", "cdi_category"]],
+                 on=["province", "year", "month"], how="inner"))
 
     df = df[(df["year"] >= YEAR_MIN) & (df["year"] <= YEAR_MAX)].copy()
     df = df.sort_values(["province", "year", "month"]).reset_index(drop=True)
     df["date"] = pd.to_datetime(df["year"].astype(str) + "-" + df["month"].astype(str) + "-01")
 
     # Lag features: this month's own conditions, and 1 month back -- both
-    # known at prediction time (nothing here leaks the future).
-    feature_cols = ["ndvi", "evi", "vv_db", "vh_db", "lst_day_c", "precip_total_mm", "spi3"]
+    # known at prediction time (nothing here leaks the future). vci/tci/vhi
+    # included alongside the raw ndvi/lst they're derived from -- a real
+    # test of whether the historical min-max normalization (Kogan's VHI
+    # method) adds information a tree model can't already infer from the
+    # raw values plus year/month, not an assumption that it does.
+    feature_cols = ["ndvi", "evi", "vv_db", "vh_db", "lst_day_c", "precip_total_mm", "spi3", "vci", "tci", "vhi"]
     for col in feature_cols:
         df[f"{col}_lag1"] = df.groupby("province")[col].shift(1)
 

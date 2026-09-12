@@ -45,6 +45,10 @@ limitations* below.
    no random k-fold, same reasoning as the companion project: a random
    split would leak future conditions into training).
    `src/train.py`
+7. **Composite Drought Index (CDI)** — a separate, human-readable 0–100
+   score for the dashboard, built from two real published indices (VHI and
+   SPI-3), not fed into the model above. See *Composite Drought Index*
+   below. `src/compute_vhi.py`, `src/compute_composite_index.py`
 
 ## Results
 
@@ -98,6 +102,71 @@ autocorrelated month to month), but SAR contributes a real, non-trivial
 along.
 
 Reproduce with `python src/train.py`.
+
+**Tested and deliberately not used as model features:** VCI/TCI/VHI (see
+below) are deterministic functions of the same NDVI/LST columns already in
+`FEATURES`. Adding them as extra model inputs was tried honestly, not
+assumed to help — measured before/after on this exact test split:
+
+| Model | F1 without VHI features | F1 with VHI features added |
+|---|---|---|
+| LightGBM | **0.598** | 0.482 |
+| Random Forest | **0.489** | 0.419 |
+
+Both got worse — most likely overfitting: near-duplicate, redundant
+dimensionality against only ~2,065 training rows, not new information. The
+leaner 14-feature set (`src/train.py`) is what's actually trained and
+reported above. VHI is still computed and used, just for a different job —
+see the next section.
+
+## Composite Drought Index (CDI) — a human-readable score for the dashboard
+
+The model above predicts one thing: the probability of drought *next*
+month. It doesn't produce a simple "how bad is it right now" number for a
+province, and the raw SPI-3 value it's trained on (a standard-normal
+z-score, roughly -3 to +3) isn't intuitive to a non-technical reader. The
+[live dashboard](https://maiwandalamzoi.github.io/afghanistan-drought-early-warning/)
+needed a real, defensible score instead of an invented one, so it's built
+from two independently-published methods, not from scratch:
+
+1. **VHI (Vegetation Health Index)** — Kogan, F.N. (1995), *"Application of
+   vegetation index and brightness temperature for drought detection,"*
+   Advances in Space Research 15(11). Operational at NOAA/STAR and used in
+   FAO's Agricultural Stress Index System. `src/compute_vhi.py`:
+   - VCI = 100 × (NDVI − NDVI_min) / (NDVI_max − NDVI_min)
+   - TCI = 100 × (LST_max − LST) / (LST_max − LST_min)
+   - VHI = 0.5 × VCI + 0.5 × TCI (Kogan's standard weighting)
+   - min/max computed per province, per calendar month, across the full
+     2015–2023 record — each province judged against its own history for
+     that time of year, the standard VHI convention.
+   - Real 3,672-row distribution: mean 49.6, median 50.0. 30.8% of
+     province-months are at or below NOAA/STAR's stress threshold (≤40);
+     15.9% at or below the severe threshold (≤26).
+2. **SPI-3**, rescaled 0–100 via its own normal CDF (it's already a
+   standard-normal value by construction — no separate fit needed), so it
+   points the same "higher = healthier" direction as VHI.
+3. **CDI = 0.5 × VHI + 0.5 × SPI-3(rescaled)** (`src/compute_composite_index.py`).
+   Equal weighting is a disclosed choice — it treats a satellite-vegetation
+   signal and a rainfall signal as equally informative absent a
+   province-specific reason to prefer one — not a tuned or hidden
+   parameter. A genuine simplification of the published Multivariate
+   Standardized Drought Index approach (Hao & AghaKouchak, 2013, which
+   fits a joint distribution rather than averaging) — named and built
+   independently here, not presented as that exact method.
+
+Categories carry over VHI's own NOAA/STAR thresholds: **≥60 Healthy, 40–59
+Normal, 26–39 Moderate drought, <26 Severe drought.** Across the full
+3,672-row record: 1,362 Healthy, 1,218 Normal, 661 Moderate drought, 431
+Severe drought.
+
+**Cross-check:** VHI and SPI-3 come from genuinely independent sources —
+one from MODIS vegetation greenness + land-surface temperature, the other
+from CHIRPS rainfall — and still correlate at **r = 0.27**. Two independent
+signals agreeing at all is a real, if modest, sanity check; a much higher
+correlation would actually be suspicious (it would suggest they aren't
+really independent). CDI is a display index, not a model input — see
+*Tested and deliberately not used as model features* above for why it's
+kept out of `train.py`.
 
 ## Real-world check: does this line up with actual events?
 
@@ -174,6 +243,8 @@ python src/compute_spi.py          # -> data/processed/spi3.csv (SPI-3 + drought
 python src/extract_satellite.py    # -> data/raw/satellite_modis.csv (NDVI/EVI, 2015-2023)
 python src/extract_climate.py      # -> data/raw/lst_modis.csv (LST, 2015-2023)
 python src/extract_sar.py          # -> data/raw/sar_sentinel1.csv (Sentinel-1, 2015-2023, resumable)
+python src/compute_vhi.py          # -> data/processed/vhi.csv (VCI/TCI/VHI, Kogan 1995)
+python src/compute_composite_index.py  # -> data/processed/composite_index.csv (CDI, dashboard-only)
 python src/build_dataset.py        # -> data/processed/panel.csv
 python src/train.py                # -> models/*.joblib, prints metrics
 python src/fetch_fews_net.py       # -> data/raw/fews_net_ipc_national.csv (validation only, not a training input)
